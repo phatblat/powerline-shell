@@ -12,7 +12,7 @@ def add_git_stash_segment():
     bg = Color.REPO_DIRTY_BG
     fg = Color.REPO_DIRTY_FG
 
-    powerline.append('(%s)' % (stash_count,), fg, bg)
+    powerline.append(' (%s) ' % (stash_count,), fg, bg)
 
 try:
     add_git_stash_segment()
