@@ -545,8 +545,8 @@ def add_git_stash_segment():
     if stash_count == '0':
         return
 
-    bg = Color.SSH_BG
-    fg = Color.SSH_FG
+    bg = 55 # dark gray
+    fg = 254 # white
 
     # ↯
     # DOWNWARDS ZIGZAG ARROW
