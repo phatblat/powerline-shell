@@ -179,6 +179,19 @@ class DefaultColor:
     SVN_CHANGES_BG = 148
     SVN_CHANGES_FG = 22  # dark green
 
+    GIT_AHEAD_BG = 240
+    GIT_AHEAD_FG = 250
+    GIT_BEHIND_BG = 240
+    GIT_BEHIND_FG = 250
+    GIT_STAGED_BG = 22
+    GIT_STAGED_FG = 15
+    GIT_NOTSTAGED_BG = 130
+    GIT_NOTSTAGED_FG = 15
+    GIT_UNTRACKED_BG = 52
+    GIT_UNTRACKED_FG = 15
+    GIT_CONFLICTED_BG = 9
+    GIT_CONFLICTED_FG = 15
+
     VIRTUAL_ENV_BG = 35  # a mid-tone green
     VIRTUAL_ENV_FG = 00
 
@@ -231,6 +244,19 @@ class DefaultColor:
 
     SVN_CHANGES_BG = 148
     SVN_CHANGES_FG = 22  # dark green
+
+    GIT_AHEAD_BG = 240
+    GIT_AHEAD_FG = 250
+    GIT_BEHIND_BG = 240
+    GIT_BEHIND_FG = 250
+    GIT_STAGED_BG = 22
+    GIT_STAGED_FG = 15
+    GIT_NOTSTAGED_BG = 130
+    GIT_NOTSTAGED_FG = 15
+    GIT_UNTRACKED_BG = 52
+    GIT_UNTRACKED_FG = 15
+    GIT_CONFLICTED_BG = 9
+    GIT_CONFLICTED_FG = 15
 
     VIRTUAL_ENV_BG = 35  # a mid-tone green
     VIRTUAL_ENV_FG = 00
@@ -296,6 +322,8 @@ add_ssh_segment()
 
 import os
 
+ELLIPSIS = u'\u2026'
+
 
 def replace_home_dir(cwd):
     home = os.getenv('HOME')
@@ -342,32 +370,44 @@ def get_fg_bg(name):
 def add_cwd_segment():
     cwd = (powerline.cwd or os.getenv('PWD')).decode('utf-8')
     cwd = replace_home_dir(cwd)
-    names = split_path_into_names(cwd)
-
-    max_depth = powerline.args.cwd_max_depth
-    if len(names) > max_depth:
-        names = names[:2] + [u'\u2026'] + names[2 - max_depth:]
 
     if powerline.args.cwd_mode == 'plain':
         powerline.append(' %s ' % (cwd,), Color.CWD_FG, Color.PATH_BG)
-    else:
-        if (powerline.args.cwd_mode == 'dironly' or powerline.args.cwd_only):
-            # The user has indicated they only want the current directory to be
-            # displayed, so chop everything else off
-            names = names[-1:]
+        return
 
-        for i, name in enumerate(names):
-            fg, bg = get_fg_bg(name)
+    names = split_path_into_names(cwd)
 
-            separator = powerline.separator_thin
-            separator_fg = Color.SEPARATOR_FG
-            is_last_dir = (i == len(names) - 1)
-            if requires_special_home_display(name) or is_last_dir:
-                separator = None
-                separator_fg = None
+    max_depth = powerline.args.cwd_max_depth
+    if max_depth <= 0:
+        warn("Ignoring --cwd-max-depth argument since it's not greater than 0")
+    elif len(names) > max_depth:
+        # https://github.com/milkbikis/powerline-shell/issues/148
+        # n_before is the number is the number of directories to put before the
+        # ellipsis. So if you are at ~/a/b/c/d/e and max depth is 4, it will
+        # show `~ a ... d e`.
+        #
+        # max_depth must be greater than n_before or else you end up repeating
+        # parts of the path with the way the splicing is written below.
+        n_before = 2 if max_depth > 2 else max_depth - 1
+        names = names[:n_before] + [ELLIPSIS] + names[n_before - max_depth:]
 
-            powerline.append(' %s ' % maybe_shorten_name(name), fg, bg,
-                             separator, separator_fg)
+    if (powerline.args.cwd_mode == 'dironly' or powerline.args.cwd_only):
+        # The user has indicated they only want the current directory to be
+        # displayed, so chop everything else off
+        names = names[-1:]
+
+    for i, name in enumerate(names):
+        fg, bg = get_fg_bg(name)
+
+        separator = powerline.separator_thin
+        separator_fg = Color.SEPARATOR_FG
+        is_last_dir = (i == len(names) - 1)
+        if requires_special_home_display(name) or is_last_dir:
+            separator = None
+            separator_fg = None
+
+        powerline.append(' %s ' % maybe_shorten_name(name), fg, bg,
+                         separator, separator_fg)
 
 add_cwd_segment()
 
@@ -386,63 +426,111 @@ add_read_only_segment()
 import re
 import subprocess
 
-def get_git_status():
-    has_pending_commits = True
-    has_untracked_files = False
-    origin_position = ""
-    output = subprocess.Popen(['git', 'status', '--ignore-submodules'],
-            env={"LANG": "C", "HOME": os.getenv("HOME")}, stdout=subprocess.PIPE).communicate()[0]
-    for line in output.split('\n'):
-        origin_status = re.findall(
-            r"Your branch is (ahead|behind).*?(\d+) comm", line)
-        diverged_status = re.findall(r"and have (\d+) and (\d+) different commits each", line)
-        if origin_status:
-            origin_position = " %d" % int(origin_status[0][1])
-            if origin_status[0][0] == 'behind':
-                origin_position += u'\u21E3'
-            if origin_status[0][0] == 'ahead':
-                origin_position += u'\u21E1'
-        if diverged_status:
-            origin_position = " %d%c %d%c" % (int(diverged_status[0][0]), u'\u21E1', int(diverged_status[0][1]), u'\u21E3')
+GIT_SYMBOLS = {
+    'detached': u'\u2693',
+    'ahead': u'\u2B06',
+    'behind': u'\u2B07',
+    'staged': u'\u2714',
+    'notstaged': u'\u270E',
+    'untracked': u'\u2753',
+    'conflicted': u'\u273C'
+}
 
-        if line.find('nothing to commit') >= 0:
-            has_pending_commits = False
-        if line.find('Untracked files') >= 0:
-            has_untracked_files = True
-    return has_pending_commits, has_untracked_files, origin_position
+git_subprocess_env = {
+    # LANG is specified to ensure git always uses a language we are expecting.
+    # Otherwise we may be unable to parse the output.
+    "LANG": "C",
+
+    # https://github.com/milkbikis/powerline-shell/pull/126
+    "HOME": os.getenv("HOME"),
+
+    # https://github.com/milkbikis/powerline-shell/pull/153
+    "PATH": os.getenv("PATH"),
+}
+
+
+def parse_git_branch_info(status):
+    info = re.search('^## (?P<local>\S+?)''(\.{3}(?P<remote>\S+?)( \[(ahead (?P<ahead>\d+)(, )?)?(behind (?P<behind>\d+))?\])?)?$', status[0])
+    return info.groupdict() if info else None
+
+
+def _get_git_detached_branch():
+    p = subprocess.Popen(['git', 'describe', '--tags', '--always'],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         env=git_subprocess_env)
+    detached_ref = p.communicate()[0].rstrip('\n')
+    if p.returncode == 0:
+        branch = u'{} {}'.format(GIT_SYMBOLS['detached'],
+                                 detached_ref.decode('utf-8'))
+    else:
+        branch = 'Big Bang'
+    return branch
+
+
+def parse_git_stats(status):
+    stats = {'untracked': 0, 'notstaged': 0, 'staged': 0, 'conflicted': 0}
+    for statusline in status[1:]:
+        code = statusline[:2]
+        if code == '??':
+            stats['untracked'] += 1
+        elif code in ('DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'):
+            stats['conflicted'] += 1
+        else:
+            if code[1] != ' ':
+                stats['notstaged'] += 1
+            if code[0] != ' ':
+                stats['staged'] += 1
+
+    return stats
+
+
+def _n_or_empty(_dict, _key):
+    return _dict[_key] if int(_dict[_key]) > 1 else u''
 
 
 def add_git_segment():
-    # See http://git-blame.blogspot.com/2013/06/checking-current-branch-programatically.html
-    p = subprocess.Popen(['git', 'symbolic-ref', '-q', 'HEAD'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = p.communicate()
-
-    if 'Not a git repo' in err:
+    p = subprocess.Popen(['git', 'status', '--porcelain', '-b'],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         env=git_subprocess_env)
+    pdata = p.communicate()
+    if p.returncode != 0:
         return
 
-    if out:
-        branch = out[len('refs/heads/'):].rstrip()
-    else:
-        branch = '(Detached)'
+    status = pdata[0].splitlines()
 
-    has_pending_commits, has_untracked_files, origin_position = get_git_status()
-    branch += origin_position
-    if has_untracked_files:
-        branch += ' +'
+    branch_info = parse_git_branch_info(status)
+    stats = parse_git_stats(status)
+    dirty = (True if sum(stats.values()) > 0 else False)
+
+    if branch_info:
+        branch = branch_info['local']
+    else:
+        branch = _get_git_detached_branch()
 
     bg = Color.REPO_CLEAN_BG
     fg = Color.REPO_CLEAN_FG
-    if has_pending_commits:
+    if dirty:
         bg = Color.REPO_DIRTY_BG
         fg = Color.REPO_DIRTY_FG
 
     powerline.append(' %s ' % branch, fg, bg)
 
+    def _add(_dict, _key, fg, bg):
+        if _dict[_key]:
+            _str = u' {}{} '.format(_n_or_empty(_dict, _key), GIT_SYMBOLS[_key])
+            powerline.append(_str, fg, bg)
+
+    if branch_info:
+        _add(branch_info, 'ahead', Color.GIT_AHEAD_FG, Color.GIT_AHEAD_BG)
+        _add(branch_info, 'behind', Color.GIT_BEHIND_FG, Color.GIT_BEHIND_BG)
+    _add(stats, 'staged', Color.GIT_STAGED_FG, Color.GIT_STAGED_BG)
+    _add(stats, 'notstaged', Color.GIT_NOTSTAGED_FG, Color.GIT_NOTSTAGED_BG)
+    _add(stats, 'untracked', Color.GIT_UNTRACKED_FG, Color.GIT_UNTRACKED_BG)
+    _add(stats, 'conflicted', Color.GIT_CONFLICTED_FG, Color.GIT_CONFLICTED_BG)
+
 try:
     add_git_segment()
-except OSError:
-    pass
-except subprocess.CalledProcessError:
+except (OSError, subprocess.CalledProcessError):
     pass
 
 
