@@ -34,7 +34,7 @@ SEGMENTS = [
     'git',
 
 # Show the number of git stashes, if any
-    # 'git_stash',
+    'git_stash',
 
 # Show the current mercurial branch and status
     'hg',
