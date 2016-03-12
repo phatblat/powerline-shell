@@ -43,7 +43,7 @@ SEGMENTS = [
     'svn',
 
 # Show the current fossil branch and status
-    'fossil',
+    # 'fossil',
 
 # Show number of running jobs
     'jobs',
